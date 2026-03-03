@@ -10,8 +10,7 @@ import {
   ButtonStyle,
   ActionRowBuilder,
   REST,
-  Routes,
-  PermissionsBitField
+  Routes
 } from 'discord.js';
 
 const TOKEN = process.env.TOKEN;
@@ -37,19 +36,18 @@ const client = new Client({
 });
 
 const commands = [
-  new SlashCommandBuilder().setName('n-raid').setDescription('Flood invite 10/100×'),
-  new SlashCommandBuilder().setName('g-raid').setDescription('Flood invite 10/100×'),
-  new SlashCommandBuilder().setName('l-raid').setDescription('Flood invite 10/100×'),
-  new SlashCommandBuilder().setName('p-raid').setDescription('Flood invite 10/100×'),
-  new SlashCommandBuilder().setName('invote').setDescription('Set invite link').addStringOption(o => o.setName('link').setDescription('discord.gg/...').setRequired(true)),
-  new SlashCommandBuilder().setName('whitelist').setDescription('Whitelist user (owner)').addUserOption(o => o.setName('user').setDescription('@user').setRequired(true)),
+  new SlashCommandBuilder().setName('n-raid').setDescription('Reply flood invite/custom 10/100×').addStringOption(o => o.setName('message').setDescription('Custom text optional').setRequired(false)),
+  new SlashCommandBuilder().setName('g-raid').setDescription('Reply flood gif 10/100×').addStringOption(o => o.setName('gif').setDescription('Gif url').setRequired(true)),
+  new SlashCommandBuilder().setName('l-raid').setDescription('Reply flood link 10/100×').addStringOption(o => o.setName('link').setDescription('Url').setRequired(true)),
+  new SlashCommandBuilder().setName('p-raid').setDescription('Reply flood invite 10/100×'),
+  new SlashCommandBuilder().setName('invote').setDescription('Set invite').addStringOption(o => o.setName('link').setDescription('discord.gg/...').setRequired(true)),
+  new SlashCommandBuilder().setName('whitelist').setDescription('Whitelist (owner)').addUserOption(o => o.setName('user').setDescription('@user').setRequired(true)),
   new SlashCommandBuilder().setName('oauth2').setDescription('Bot invite'),
-  new SlashCommandBuilder().setName('bot').setDescription('Publicly share add-bot embed')
+  new SlashCommandBuilder().setName('bot').setDescription('Public add embed')
 ].map(c => c.toJSON());
 
 client.once('clientReady', async () => {
-  console.log(`[Zlalux] ${client.user.tag} online - whitelisted: ${whitelisted.size}`);
-
+  console.log(`[Zlalux] ${client.user.tag} online`);
   const rest = new REST({ version: '10' }).setToken(TOKEN);
   try {
     await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands });
@@ -61,7 +59,7 @@ client.once('clientReady', async () => {
 
 client.on('messageCreate', message => {
   if (message.author.bot) return;
-  console.log(`[MSG] ${message.author.tag} (${message.author.id}) in ${message.guild?.name || 'DM'} #${message.channel.name || 'unknown'}: ${message.content.slice(0, 100)}${message.content.length > 100 ? '...' : ''}`);
+  console.log(`[MSG] ${message.author.tag}: ${message.content.slice(0, 100)}`);
 });
 
 client.on('interactionCreate', async i => {
@@ -69,82 +67,40 @@ client.on('interactionCreate', async i => {
 
   const cmd = i.commandName;
 
-  switch (cmd) {
-    case 'n-raid':
-    case 'g-raid':
-    case 'l-raid':
-    case 'p-raid': {
-      const isWhitelisted = whitelisted.has(i.user.id);
-      const count = isWhitelisted ? 100 : 10;
-      console.log(`${i.user.tag} used ${cmd} (${count}x) whitelisted: ${isWhitelisted}`);
+  let contentToSend = currentInvite;
 
-      let channel = i.channel || (i.guild && i.channelId ? i.guild.channels.cache.get(i.channelId) : null);
+  if (cmd === 'n-raid') {
+    const custom = i.options.getString('message');
+    if (custom) contentToSend = custom;
+  } else if (cmd === 'g-raid') {
+    contentToSend = i.options.getString('gif') || currentInvite;
+  } else if (cmd === 'l-raid') {
+    contentToSend = i.options.getString('link') || currentInvite;
+  } // p-raid uses invite
 
-      if (!channel) {
-        await i.reply({ content: 'No channel found', ephemeral: true });
-        break;
+  const isWhitelisted = whitelisted.has(i.user.id);
+  const count = isWhitelisted ? 100 : 10;
+  console.log(`${i.user.tag} ${cmd} (${count}x)`);
+
+  let firstReply = null;
+
+  for (let k = 0; k < count; k++) {
+    try {
+      const replyOptions = {
+        content: contentToSend,
+        reply: { messageReference: firstReply ? firstReply.id : i.id, failIfNotExists: false }
+      };
+
+      const msg = await i.channel.send(replyOptions);
+
+      if (k === 0) {
+        firstReply = msg;
+        setTimeout(() => msg.delete().catch(() => {}), 1500); // delete first after 1.5s
       }
 
-      const perms = channel.permissionsFor(client.user);
-      if (!perms?.has(PermissionsBitField.Flags.SendMessages)) {
-        await i.reply({ content: 'Bot missing Send Messages perm here', ephemeral: true });
-        try { await i.user.send(currentInvite); } catch {}
-        break;
-      }
-
-      for (let k = 0; k < count; k++) {
-        try {
-          await channel.send(currentInvite);
-          await new Promise(r => setTimeout(r, 400));
-        } catch (e) {
-          console.log(`Stopped at ${k+1}: ${e.message}`);
-          break;
-        }
-      }
-      break;
-    }
-
-    case 'invote': {
-      const link = i.options.getString('link');
-      if (link && (link.includes('discord.gg/') || link.includes('discord.com/invite/'))) {
-        currentInvite = link;
-        await i.reply({ content: `Invite set: ${link}`, ephemeral: true });
-      } else {
-        await i.reply({ content: 'Invalid invite', ephemeral: true });
-      }
-      break;
-    }
-
-    case 'whitelist': {
-      if (i.user.id !== OWNER_ID) return i.reply({ content: 'Owner only', ephemeral: true });
-      const user = i.options.getUser('user');
-      if (user) {
-        whitelisted.add(user.id);
-        await i.reply({ content: `Whitelisted ${user.tag}`, ephemeral: true });
-      }
-      break;
-    }
-
-    case 'oauth2': {
-      const url = `https://discord.com/oauth2/authorize?client_id=${CLIENT_ID}&scope=bot+applications.commands&permissions=274877945856`;
-      await i.reply({ content: url, ephemeral: true });
-      break;
-    }
-
-    case 'bot': {
-      const url = `https://discord.com/oauth2/authorize?client_id=${CLIENT_ID}&scope=bot+applications.commands&permissions=274877945856`;
-      const embed = new EmbedBuilder()
-        .setTitle('Zlalux Raid Bot')
-        .setDescription('Click below to add Zlalux to any server you want')
-        .setColor(0x5865F2)
-        .setFooter({ text: 'Public add link — share freely' });
-      const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-          .setLabel('Add Zlalux Now')
-          .setStyle(ButtonStyle.Link)
-          .setURL(url)
-      );
-      await i.reply({ embeds: [embed], components: [row] });  // ← this is public, not ephemeral
+      await new Promise(r => setTimeout(r, 500 + Math.random() * 300)); // jitter
+    } catch (e) {
+      console.log(`Stopped at ${k+1}: ${e.message}`);
       break;
     }
   }
