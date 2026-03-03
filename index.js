@@ -36,14 +36,14 @@ const client = new Client({
 });
 
 const commands = [
-  new SlashCommandBuilder().setName('n-raid').setDescription('Flood reply custom/invite').addStringOption(o => o.setName('msg').setDescription('Optional custom').setRequired(false)),
-  new SlashCommandBuilder().setName('g-raid').setDescription('Flood gif reply').addStringOption(o => o.setName('gif').setDescription('Gif url').setRequired(true)),
-  new SlashCommandBuilder().setName('l-raid').setDescription('Flood link reply').addStringOption(o => o.setName('link').setDescription('Url').setRequired(true)),
-  new SlashCommandBuilder().setName('p-raid').setDescription('Flood invite reply'),
-  new SlashCommandBuilder().setName('invote').setDescription('Set invite link').addStringOption(o => o.setName('link').setDescription('discord.gg/...').setRequired(true)),
-  new SlashCommandBuilder().setName('whitelist').setDescription('Add user to whitelist (owner)').addUserOption(o => o.setName('user').setDescription('@user').setRequired(true)),
-  new SlashCommandBuilder().setName('oauth2').setDescription('Bot invite link'),
-  new SlashCommandBuilder().setName('bot').setDescription('Public add-bot embed')
+  new SlashCommandBuilder().setName('n-raid').setDescription('Flood reply').addStringOption(o => o.setName('msg').setDescription('Optional custom').setRequired(false)),
+  new SlashCommandBuilder().setName('g-raid').setDescription('Flood gif').addStringOption(o => o.setName('gif').setDescription('Gif url').setRequired(true)),
+  new SlashCommandBuilder().setName('l-raid').setDescription('Flood link').addStringOption(o => o.setName('link').setDescription('Url').setRequired(true)),
+  new SlashCommandBuilder().setName('p-raid').setDescription('Flood invite'),
+  new SlashCommandBuilder().setName('invote').setDescription('Set invite').addStringOption(o => o.setName('link').setDescription('discord.gg/...').setRequired(true)),
+  new SlashCommandBuilder().setName('whitelist').setDescription('Whitelist').addUserOption(o => o.setName('user').setDescription('@user').setRequired(true)),
+  new SlashCommandBuilder().setName('oauth2').setDescription('Bot invite'),
+  new SlashCommandBuilder().setName('bot').setDescription('Public add')
 ].map(c => c.toJSON());
 
 client.once('clientReady', async () => {
@@ -62,10 +62,14 @@ client.on('interactionCreate', async i => {
 
   const cmd = i.commandName;
 
-  await i.deferReply().catch(() => {}); // no ephemeral
+  await i.deferReply().catch(() => {});
+
+  let channel = i.channel;
+  if (!channel && i.channelId && i.guild) {
+    channel = i.guild.channels.cache.get(i.channelId);
+  }
 
   let content = currentInvite;
-
   if (cmd === 'n-raid') {
     const m = i.options.getString('msg');
     if (m) content = m;
@@ -78,7 +82,15 @@ client.on('interactionCreate', async i => {
   const isWl = whitelisted.has(i.user.id);
   const count = isWl ? 30 : 5;
 
-  console.log(`${i.user.tag} ${cmd} ${count}x`);
+  console.log(`${i.user.tag} ${cmd} ${count}x channel: ${channel ? channel.name : 'NULL'}`);
+
+  if (!channel) {
+    console.log('Channel null - trying DM fallback');
+    await i.user.send(content).catch(e => console.log('DM fail:', e.message));
+    await i.editReply({ content: 'No channel access - sent to your DMs' }).catch(() => {});
+    await i.deleteReply().catch(() => {});
+    return;
+  }
 
   let first = null;
 
@@ -89,7 +101,7 @@ client.on('interactionCreate', async i => {
         reply: { messageReference: first ? first.id : i.id, failIfNotExists: false }
       };
 
-      const sent = await i.channel.send(opts);
+      const sent = await channel.send(opts);
 
       if (k === 0) {
         first = sent;
@@ -99,7 +111,7 @@ client.on('interactionCreate', async i => {
       await new Promise(r => setTimeout(r, 1000 + Math.random() * 800));
     } catch (e) {
       console.log(`Loop ${k+1} fail: ${e.message}`);
-      await i.editReply({ content: `Failed at ${k+1}: ${e.message}` }).catch(() => {});
+      await i.editReply({ content: `Failed: ${e.message}` }).catch(() => {});
       break;
     }
   }
