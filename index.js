@@ -36,14 +36,14 @@ const client = new Client({
 });
 
 const commands = [
-  new SlashCommandBuilder().setName('n-raid').setDescription('Reply flood').addStringOption(o => o.setName('msg').setDescription('Optional custom').setRequired(false)),
-  new SlashCommandBuilder().setName('g-raid').setDescription('Gif reply flood').addStringOption(o => o.setName('gif').setDescription('Gif url').setRequired(true)),
-  new SlashCommandBuilder().setName('l-raid').setDescription('Link reply flood').addStringOption(o => o.setName('link').setDescription('Url').setRequired(true)),
-  new SlashCommandBuilder().setName('p-raid').setDescription('Invite reply flood'),
-  new SlashCommandBuilder().setName('invote').setDescription('Set invite').addStringOption(o => o.setName('link').setDescription('discord.gg/...').setRequired(true)),
-  new SlashCommandBuilder().setName('whitelist').setDescription('Whitelist').addUserOption(o => o.setName('user').setDescription('@user').setRequired(true)),
-  new SlashCommandBuilder().setName('oauth2').setDescription('Bot invite'),
-  new SlashCommandBuilder().setName('bot').setDescription('Public add')
+  new SlashCommandBuilder().setName('n-raid').setDescription('Flood reply custom/invite').addStringOption(o => o.setName('msg').setDescription('Optional custom').setRequired(false)),
+  new SlashCommandBuilder().setName('g-raid').setDescription('Flood gif reply').addStringOption(o => o.setName('gif').setDescription('Gif url').setRequired(true)),
+  new SlashCommandBuilder().setName('l-raid').setDescription('Flood link reply').addStringOption(o => o.setName('link').setDescription('Url').setRequired(true)),
+  new SlashCommandBuilder().setName('p-raid').setDescription('Flood invite reply'),
+  new SlashCommandBuilder().setName('invote').setDescription('Set invite link').addStringOption(o => o.setName('link').setDescription('discord.gg/...').setRequired(true)),
+  new SlashCommandBuilder().setName('whitelist').setDescription('Add user to whitelist (owner)').addUserOption(o => o.setName('user').setDescription('@user').setRequired(true)),
+  new SlashCommandBuilder().setName('oauth2').setDescription('Bot invite link'),
+  new SlashCommandBuilder().setName('bot').setDescription('Public add-bot embed')
 ].map(c => c.toJSON());
 
 client.once('clientReady', async () => {
@@ -62,9 +62,10 @@ client.on('interactionCreate', async i => {
 
   const cmd = i.commandName;
 
-  await i.deferReply({ ephemeral: true }).catch(() => {});
+  await i.deferReply().catch(() => {}); // no ephemeral
 
   let content = currentInvite;
+
   if (cmd === 'n-raid') {
     const m = i.options.getString('msg');
     if (m) content = m;
@@ -75,26 +76,30 @@ client.on('interactionCreate', async i => {
   }
 
   const isWl = whitelisted.has(i.user.id);
-  const count = isWl ? 50 : 5; // lower to survive
+  const count = isWl ? 30 : 5;
 
   console.log(`${i.user.tag} ${cmd} ${count}x`);
 
-  let firstReplyId = null;
+  let first = null;
 
   for (let k = 0; k < count; k++) {
     try {
-      const replyRef = firstReplyId ? { messageReference: firstReplyId, failIfNotExists: false } : {};
+      const opts = {
+        content,
+        reply: { messageReference: first ? first.id : i.id, failIfNotExists: false }
+      };
 
-      const reply = await i.editReply({ content, ...replyRef });
+      const sent = await i.channel.send(opts);
 
       if (k === 0) {
-        firstReplyId = reply.id;
-        setTimeout(() => i.editReply({ content: '' }).catch(() => {}), 2000); // "delete" first by clearing
+        first = sent;
+        setTimeout(() => sent.delete().catch(() => {}), 2000);
       }
 
-      await new Promise(r => setTimeout(r, 800 + Math.random() * 600));
+      await new Promise(r => setTimeout(r, 1000 + Math.random() * 800));
     } catch (e) {
-      console.log(`Reply ${k+1} fail: ${e.message}`);
+      console.log(`Loop ${k+1} fail: ${e.message}`);
+      await i.editReply({ content: `Failed at ${k+1}: ${e.message}` }).catch(() => {});
       break;
     }
   }
