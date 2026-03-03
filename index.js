@@ -10,12 +10,13 @@ import {
   ButtonStyle,
   ActionRowBuilder,
   REST,
-  Routes
+  Routes,
+  PermissionsBitField
 } from 'discord.js';
 
 const TOKEN = process.env.TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
-const OWNER_ID = '1459833646130401429'; // your ID here
+const OWNER_ID = '1459833646130401429';
 
 if (!TOKEN || !CLIENT_ID) {
   console.error('Missing TOKEN or CLIENT_ID in .env');
@@ -36,14 +37,14 @@ const client = new Client({
 });
 
 const commands = [
-  new SlashCommandBuilder().setName('n-raid').setDescription('Send invite 10/100×').addStringOption(o => o.setName('dummy').setDescription('Ignored').setRequired(false)),
-  new SlashCommandBuilder().setName('g-raid').setDescription('Send invite 10/100×').addStringOption(o => o.setName('dummy').setDescription('Ignored').setRequired(false)),
-  new SlashCommandBuilder().setName('l-raid').setDescription('Send invite 10/100×').addStringOption(o => o.setName('dummy').setDescription('Ignored').setRequired(false)),
-  new SlashCommandBuilder().setName('p-raid').setDescription('Send invite 10/100×').addStringOption(o => o.setName('dummy').setDescription('Ignored').setRequired(false)),
-  new SlashCommandBuilder().setName('invote').setDescription('Set your invite link').addStringOption(o => o.setName('link').setDescription('discord.gg/...').setRequired(true)),
-  new SlashCommandBuilder().setName('whitelist').setDescription('Whitelist user (owner only)').addUserOption(o => o.setName('user').setDescription('@user').setRequired(true)),
-  new SlashCommandBuilder().setName('oauth2').setDescription('Get bot invite'),
-  new SlashCommandBuilder().setName('bot').setDescription('Add to applications')
+  new SlashCommandBuilder().setName('n-raid').setDescription('Flood invite 10/100×'),
+  new SlashCommandBuilder().setName('g-raid').setDescription('Flood invite 10/100×'),
+  new SlashCommandBuilder().setName('l-raid').setDescription('Flood invite 10/100×'),
+  new SlashCommandBuilder().setName('p-raid').setDescription('Flood invite 10/100×'),
+  new SlashCommandBuilder().setName('invote').setDescription('Set invite link').addStringOption(o => o.setName('link').setDescription('discord.gg/...').setRequired(true)),
+  new SlashCommandBuilder().setName('whitelist').setDescription('Whitelist user (owner)').addUserOption(o => o.setName('user').setDescription('@user').setRequired(true)),
+  new SlashCommandBuilder().setName('oauth2').setDescription('Bot invite'),
+  new SlashCommandBuilder().setName('bot').setDescription('Publicly share add-bot embed')
 ].map(c => c.toJSON());
 
 client.once('clientReady', async () => {
@@ -52,13 +53,12 @@ client.once('clientReady', async () => {
   const rest = new REST({ version: '10' }).setToken(TOKEN);
   try {
     await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands });
-    console.log('Commands deployed globally');
+    console.log('Commands deployed');
   } catch (e) {
-    console.error('Command deploy failed:', e);
+    console.error('Deploy failed:', e);
   }
 });
 
-// Bot sees every message
 client.on('messageCreate', message => {
   if (message.author.bot) return;
   console.log(`[MSG] ${message.author.tag} (${message.author.id}) in ${message.guild?.name || 'DM'} #${message.channel.name || 'unknown'}: ${message.content.slice(0, 100)}${message.content.length > 100 ? '...' : ''}`);
@@ -76,16 +76,19 @@ client.on('interactionCreate', async i => {
     case 'p-raid': {
       const isWhitelisted = whitelisted.has(i.user.id);
       const count = isWhitelisted ? 100 : 10;
-      console.log(`${i.user.tag} (${i.user.id}) used ${cmd} (${count}x) - whitelisted: ${isWhitelisted}`);
+      console.log(`${i.user.tag} used ${cmd} (${count}x) whitelisted: ${isWhitelisted}`);
 
-      let channel = i.channel;
-      if (!channel && i.guild && i.channelId) {
-        channel = i.guild.channels.cache.get(i.channelId);
-      }
+      let channel = i.channel || (i.guild && i.channelId ? i.guild.channels.cache.get(i.channelId) : null);
 
       if (!channel) {
-        console.log(`No channel for ${i.id} - user: ${i.user.tag}`);
-        try { await i.reply({ content: 'Cannot send here (no channel access)', ephemeral: true }); } catch {}
+        await i.reply({ content: 'No channel found', ephemeral: true });
+        break;
+      }
+
+      const perms = channel.permissionsFor(client.user);
+      if (!perms?.has(PermissionsBitField.Flags.SendMessages)) {
+        await i.reply({ content: 'Bot missing Send Messages perm here', ephemeral: true });
+        try { await i.user.send(currentInvite); } catch {}
         break;
       }
 
@@ -94,7 +97,7 @@ client.on('interactionCreate', async i => {
           await channel.send(currentInvite);
           await new Promise(r => setTimeout(r, 400));
         } catch (e) {
-          console.log(`Stopped at ${k+1}/${count}: ${e.message}`);
+          console.log(`Stopped at ${k+1}: ${e.message}`);
           break;
         }
       }
@@ -105,22 +108,19 @@ client.on('interactionCreate', async i => {
       const link = i.options.getString('link');
       if (link && (link.includes('discord.gg/') || link.includes('discord.com/invite/'))) {
         currentInvite = link;
-        await i.reply({ content: `Invite updated: ${link}`, ephemeral: true });
+        await i.reply({ content: `Invite set: ${link}`, ephemeral: true });
       } else {
-        await i.reply({ content: 'Invalid link - must be discord.gg/... or discord.com/invite/...', ephemeral: true });
+        await i.reply({ content: 'Invalid invite', ephemeral: true });
       }
       break;
     }
 
     case 'whitelist': {
-      if (i.user.id !== OWNER_ID) {
-        return i.reply({ content: 'Only owner can whitelist users', ephemeral: true });
-      }
+      if (i.user.id !== OWNER_ID) return i.reply({ content: 'Owner only', ephemeral: true });
       const user = i.options.getUser('user');
       if (user) {
         whitelisted.add(user.id);
-        await i.reply({ content: `Whitelisted ${user.tag} (${user.id})`, ephemeral: true });
-        console.log(`Added to whitelist: ${user.tag} (${user.id})`);
+        await i.reply({ content: `Whitelisted ${user.tag}`, ephemeral: true });
       }
       break;
     }
@@ -135,15 +135,16 @@ client.on('interactionCreate', async i => {
       const url = `https://discord.com/oauth2/authorize?client_id=${CLIENT_ID}&scope=bot+applications.commands&permissions=274877945856`;
       const embed = new EmbedBuilder()
         .setTitle('Zlalux Raid Bot')
-        .setDescription('Click to add Zlalux to your applications')
-        .setColor(0x5865F2);
+        .setDescription('Click below to add Zlalux to any server you want')
+        .setColor(0x5865F2)
+        .setFooter({ text: 'Public add link — share freely' });
       const row = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
-          .setLabel('Add to Applications')
+          .setLabel('Add Zlalux Now')
           .setStyle(ButtonStyle.Link)
           .setURL(url)
       );
-      await i.reply({ embeds: [embed], components: [row] });
+      await i.reply({ embeds: [embed], components: [row] });  // ← this is public, not ephemeral
       break;
     }
   }
