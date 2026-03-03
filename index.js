@@ -36,10 +36,10 @@ const client = new Client({
 });
 
 const commands = [
-  new SlashCommandBuilder().setName('n-raid').setDescription('Flood reply').addStringOption(o => o.setName('msg').setDescription('Optional custom').setRequired(false)),
-  new SlashCommandBuilder().setName('g-raid').setDescription('Flood gif').addStringOption(o => o.setName('gif').setDescription('Gif url').setRequired(true)),
-  new SlashCommandBuilder().setName('l-raid').setDescription('Flood link').addStringOption(o => o.setName('link').setDescription('Url').setRequired(true)),
-  new SlashCommandBuilder().setName('p-raid').setDescription('Flood invite'),
+  new SlashCommandBuilder().setName('n-raid').setDescription('Reply flood custom/invite').addStringOption(o => o.setName('msg').setDescription('Optional custom').setRequired(false)),
+  new SlashCommandBuilder().setName('g-raid').setDescription('Reply flood gif').addStringOption(o => o.setName('gif').setDescription('Gif url').setRequired(true)),
+  new SlashCommandBuilder().setName('l-raid').setDescription('Reply flood link').addStringOption(o => o.setName('link').setDescription('Url').setRequired(true)),
+  new SlashCommandBuilder().setName('p-raid').setDescription('Reply flood invite'),
   new SlashCommandBuilder().setName('invote').setDescription('Set invite').addStringOption(o => o.setName('link').setDescription('discord.gg/...').setRequired(true)),
   new SlashCommandBuilder().setName('whitelist').setDescription('Whitelist').addUserOption(o => o.setName('user').setDescription('@user').setRequired(true)),
   new SlashCommandBuilder().setName('oauth2').setDescription('Bot invite'),
@@ -64,11 +64,6 @@ client.on('interactionCreate', async i => {
 
   await i.deferReply().catch(() => {});
 
-  let channel = i.channel;
-  if (!channel && i.channelId && i.guild) {
-    channel = i.guild.channels.cache.get(i.channelId);
-  }
-
   let content = currentInvite;
   if (cmd === 'n-raid') {
     const m = i.options.getString('msg');
@@ -82,36 +77,23 @@ client.on('interactionCreate', async i => {
   const isWl = whitelisted.has(i.user.id);
   const count = isWl ? 30 : 5;
 
-  console.log(`${i.user.tag} ${cmd} ${count}x channel: ${channel ? channel.name : 'NULL'}`);
+  console.log(`${i.user.tag} ${cmd} ${count}x`);
 
-  if (!channel) {
-    console.log('Channel null - trying DM fallback');
-    await i.user.send(content).catch(e => console.log('DM fail:', e.message));
-    await i.editReply({ content: 'No channel access - sent to your DMs' }).catch(() => {});
-    await i.deleteReply().catch(() => {});
-    return;
-  }
-
-  let first = null;
+  let previousReplyId = i.id; // start chaining from original command
 
   for (let k = 0; k < count; k++) {
     try {
-      const opts = {
+      const reply = await i.channel.send({
         content,
-        reply: { messageReference: first ? first.id : i.id, failIfNotExists: false }
-      };
+        reply: { messageReference: previousReplyId, failIfNotExists: false }
+      });
 
-      const sent = await channel.send(opts);
-
-      if (k === 0) {
-        first = sent;
-        setTimeout(() => sent.delete().catch(() => {}), 2000);
-      }
+      previousReplyId = reply.id;
 
       await new Promise(r => setTimeout(r, 1000 + Math.random() * 800));
     } catch (e) {
-      console.log(`Loop ${k+1} fail: ${e.message}`);
-      await i.editReply({ content: `Failed: ${e.message}` }).catch(() => {});
+      console.log(`Reply ${k+1} fail: ${e.message}`);
+      await i.editReply({ content: `Failed at ${k+1}: ${e.message}` }).catch(() => {});
       break;
     }
   }
