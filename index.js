@@ -62,8 +62,7 @@ client.on('interactionCreate', async i => {
 
   const cmd = i.commandName;
 
-  // Defer to stop thinking
-  await i.deferReply().catch(e => console.log('Defer fail:', e));
+  await i.deferReply().catch(() => {});
 
   let content = currentInvite;
   if (cmd === 'n-raid') {
@@ -80,17 +79,22 @@ client.on('interactionCreate', async i => {
 
   console.log(`${i.user.tag} ${cmd} ${count}x`);
 
-  for (let k = 0; k < count; k++) {
-    try {
-      await i.editReply({ content });
-      await new Promise(r => setTimeout(r, 1000 + Math.random() * 800));
-    } catch (e) {
-      console.log(`Reply ${k+1} fail: ${e.message}`);
-      await i.editReply({ content: `Failed at ${k+1}: ${e.message}` }).catch(() => {});
-      break;
+  try {
+    await i.editReply({ content }); // first reply
+
+    for (let k = 1; k < count; k++) {
+      await i.channel.send({
+        content,
+        reply: { messageReference: i.id, failIfNotExists: false }
+      });
+      await new Promise(r => setTimeout(r, 1200 + Math.random() * 600));
     }
+  } catch (e) {
+    console.log(`Reply loop fail: ${e.message}`);
+    await i.editReply({ content: `Failed: ${e.message}` }).catch(() => {});
   }
 
+  await i.deleteReply().catch(() => {});
 });
 
 client.login(TOKEN);
