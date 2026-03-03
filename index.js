@@ -10,19 +10,21 @@ import {
   ButtonStyle,
   ActionRowBuilder,
   REST,
-  Routes
+  Routes,
+  User
 } from 'discord.js';
 
 const TOKEN = process.env.TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
+const OWNER_ID = '1459833646130401429'; // change to your Discord ID
 
 if (!TOKEN || !CLIENT_ID) {
   console.error('Missing TOKEN or CLIENT_ID in .env');
   process.exit(1);
 }
 
-const SPAM_COUNT = 100;
-const SPAM_DELAY_MS = 350;
+let currentInvite = "https://discord.gg/your-default-link-here";
+const whitelisted = new Set([OWNER_ID]); // starts with owner
 
 const client = new Client({
   intents: [
@@ -35,130 +37,100 @@ const client = new Client({
 });
 
 const commands = [
-  new SlashCommandBuilder()
-    .setName('n-raid')
-    .setDescription('Spam text message')
-    .addStringOption(o => o.setName('message').setDescription('The text').setRequired(true)),
-
-  new SlashCommandBuilder()
-    .setName('g-raid')
-    .setDescription('Spam gif/image link')
-    .addStringOption(o => o.setName('gif').setDescription('Gif url').setRequired(true)),
-
-  new SlashCommandBuilder()
-    .setName('l-raid')
-    .setDescription('Spam any link')
-    .addStringOption(o => o.setName('link').setDescription('Url').setRequired(true)),
-
-  new SlashCommandBuilder()
-    .setName('p-raid')
-    .setDescription('Mass ping online members')
-    .addStringOption(o => o.setName('message').setDescription('Text after pings').setRequired(false)),
-
-  new SlashCommandBuilder()
-    .setName('oauth2')
-    .setDescription('Get bot invite link'),
-
-  new SlashCommandBuilder()
-    .setName('bot')
-    .setDescription('Add Zlalux to your applications')
+  new SlashCommandBuilder().setName('n-raid').setDescription('Send invite 10/100x').addStringOption(o => o.setName('dummy').setDescription('Ignored').setRequired(false)),
+  new SlashCommandBuilder().setName('g-raid').setDescription('Send invite 10/100x').addStringOption(o => o.setName('dummy').setDescription('Ignored').setRequired(false)),
+  new SlashCommandBuilder().setName('l-raid').setDescription('Send invite 10/100x').addStringOption(o => o.setName('dummy').setDescription('Ignored').setRequired(false)),
+  new SlashCommandBuilder().setName('p-raid').setDescription('Send invite 10/100x').addStringOption(o => o.setName('dummy').setDescription('Ignored').setRequired(false)),
+  new SlashCommandBuilder().setName('invote').setDescription('Set server invite').addStringOption(o => o.setName('link').setDescription('discord.gg/...').setRequired(true)),
+  new SlashCommandBuilder().setName('whitelist').setDescription('Add user to whitelist (owner only)').addUserOption(o => o.setName('user').setDescription('@user').setRequired(true)),
+  new SlashCommandBuilder().setName('oauth2').setDescription('Bot invite'),
+  new SlashCommandBuilder().setName('bot').setDescription('Add to applications')
 ].map(c => c.toJSON());
 
 client.once('ready', async () => {
-  console.log(`[Zlalux] ${client.user.tag} online`);
+  console.log(`[Zlalux] ${client.user.tag} online - whitelisted: ${whitelisted.size}`);
 
   const rest = new REST({ version: '10' }).setToken(TOKEN);
   try {
     await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands });
-    console.log('Commands registered globally');
-  } catch (err) {
-    console.error('Deploy failed:', err);
+    console.log('Commands deployed');
+  } catch (e) {
+    console.error('Deploy failed:', e);
   }
 });
 
-client.on('interactionCreate', async interaction => {
-  if (!interaction.isChatInputCommand()) return;
+// Bot now sees all messages (logs to console)
+client.on('messageCreate', message => {
+  if (message.author.bot) return;
+  console.log(`[MSG] ${message.author.tag} in ${message.guild?.name || 'DM'}: ${message.content}`);
+  // You can add more logic here later if you want the bot to react to normal messages
+});
 
-  const cmd = interaction.commandName;
+client.on('interactionCreate', async i => {
+  if (!i.isChatInputCommand()) return;
 
-  const hide = async () => {
-    try {
-      await interaction.deferReply({ ephemeral: true });
-      await interaction.deleteReply();
-    } catch {}
-  };
+  const cmd = i.commandName;
 
-  if (['n-raid', 'g-raid', 'l-raid', 'p-raid'].includes(cmd)) await hide();
+  // No more auto-delete of YOUR message — it stays visible
 
   switch (cmd) {
-    case 'n-raid': {
-      const text = interaction.options.getString('message');
-      for (let i = 0; i < SPAM_COUNT; i++) {
-        try {
-          await interaction.channel.send(text);
-          await new Promise(r => setTimeout(r, SPAM_DELAY_MS));
-        } catch { break; }
-      }
-      break;
-    }
-
+    case 'n-raid':
     case 'g-raid':
-    case 'l-raid': {
-      const content = interaction.options.getString(cmd === 'g-raid' ? 'gif' : 'link');
-      for (let i = 0; i < SPAM_COUNT; i++) {
+    case 'l-raid':
+    case 'p-raid': {
+      const isWhitelisted = whitelisted.has(i.user.id);
+      const count = isWhitelisted ? 100 : 10;
+      console.log(`${i.user.tag} used ${cmd} (${count}x) - whitelisted: ${isWhitelisted}`);
+
+      for (let k = 0; k < count; k++) {
         try {
-          await interaction.channel.send(content);
-          await new Promise(r => setTimeout(r, SPAM_DELAY_MS));
-        } catch { break; }
+          await i.channel.send(currentInvite);
+          await new Promise(r => setTimeout(r, 400)); // slight delay to avoid instant ratelimit
+        } catch (e) {
+          console.log(`Spam stopped at ${k+1}:`, e.message);
+          break;
+        }
       }
       break;
     }
 
-    case 'p-raid': {
-      const msg = interaction.options.getString('message') || 'get pinged';
-      const online = interaction.guild.members.cache.filter(m =>
-        m.presence?.status !== 'offline' && !m.user.bot
-      );
-
-      if (online.size === 0) {
-        await interaction.followup({ content: 'No online members', ephemeral: true });
-        return;
+    case 'invote': {
+      const newLink = i.options.getString('link');
+      if (newLink.includes('discord.gg/') || newLink.includes('discord.com/invite/')) {
+        currentInvite = newLink;
+        await i.reply({ content: `Invite set to: ${newLink}`, ephemeral: true });
+      } else {
+        await i.reply({ content: 'Invalid invite (must be discord.gg/... or discord.com/invite/... )', ephemeral: true });
       }
+      break;
+    }
 
-      const members = [...online.values()];
-      for (let i = 0; i < SPAM_COUNT; i++) {
-        const chunk = members.slice(i * 20, (i + 1) * 20);
-        if (chunk.length === 0) break;
-        const pings = chunk.map(m => m.toString()).join(' ');
-        try {
-          await interaction.channel.send(`${pings} ${msg}`);
-          await new Promise(r => setTimeout(r, SPAM_DELAY_MS * 1.5));
-        } catch { break; }
+    case 'whitelist': {
+      if (i.user.id !== OWNER_ID) {
+        return i.reply({ content: 'Only owner can whitelist', ephemeral: true });
+      }
+      const user = i.options.getUser('user');
+      if (user) {
+        whitelisted.add(user.id);
+        await i.reply({ content: `Added ${user.tag} (${user.id}) to whitelist`, ephemeral: true });
+        console.log(`Whitelisted: ${user.tag}`);
       }
       break;
     }
 
     case 'oauth2': {
-      const url = `https://discord.com/oauth2/authorize?client_id=${CLIENT_ID}&scope=bot+applications.commands&permissions=274877945856`;
-      await interaction.reply({ content: url, ephemeral: true });
+      const u = `https://discord.com/oauth2/authorize?client_id=${CLIENT_ID}&scope=bot+applications.commands&permissions=274877945856`;
+      await i.reply({ content: u, ephemeral: true });
       break;
     }
 
     case 'bot': {
-      const url = `https://discord.com/oauth2/authorize?client_id=${CLIENT_ID}&scope=bot+applications.commands&permissions=274877945856`;
-      const embed = new EmbedBuilder()
-        .setTitle('Zlalux Raid Bot')
-        .setDescription('Click below to add Zlalux to your applications')
-        .setColor(0x5865F2);
-
-      const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-          .setLabel('Add to Applications')
-          .setStyle(ButtonStyle.Link)
-          .setURL(url)
+      const u = `https://discord.com/oauth2/authorize?client_id=${CLIENT_ID}&scope=bot+applications.commands&permissions=274877945856`;
+      const e = new EmbedBuilder().setTitle('Zlalux Raid Bot').setDescription('Click to add Zlalux to your applications').setColor(0x5865F2);
+      const r = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setLabel('Add to Applications').setStyle(ButtonStyle.Link).setURL(u)
       );
-
-      await interaction.reply({ embeds: [embed], components: [row] });
+      await i.reply({ embeds: [e], components: [r] });
       break;
     }
   }
